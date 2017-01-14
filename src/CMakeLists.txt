@@ -1,3 +1,5 @@
+include_directories(third_party)
+
 add_executable(
     uvccapture2
     uvccapture2.cpp
