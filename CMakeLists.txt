@@ -3,6 +3,28 @@ project(uvccapture2)
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake;${CMAKE_MODULE_PATH}")
 
+message(STATUS "Building for: ${CMAKE_SYSTEM} ${CMAKE_SYSTEM_PROCESSOR} ${CMAKE_LIBRARY_ARCHITECTURE}")
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+	# Require at least gcc 4.9
+	if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.9 AND NOT CMAKE_VERSION VERSION_LESS 2.8.9)
+		message (FATAL_ERROR "GCC version must be at least 4.9!")
+	endif ()
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+	# Require at least clang 3.8
+	if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 3.8)
+		message (FATAL_ERROR "Clang version must be at least 3.8!")
+	endif ()
+else ()
+	message (WARNING "You are using an unsupported compiler! Compilation has only been tested with Clang 3.8+ and GCC 4.9+.")
+endif ()
+
+if (NOT CMAKE_BUILD_TYPE)
+    message(STATUS "CMAKE_BUILD_TYPE is not set, set to default = RelWithDebInfo")
+    set(CMAKE_BUILD_TYPE "RelWithDebInfo")
+endif()
+message(STATUS "CMAKE_BUILD_TYPE: " ${CMAKE_BUILD_TYPE})
+
 include(FindPkgConfig)
 include(CheckCXXCompilerFlag)
 include(CheckCCompilerFlag)
