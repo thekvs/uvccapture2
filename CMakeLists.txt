@@ -35,6 +35,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_compile_options(-Wall)
 add_compile_options(-Wextra)
 
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -s")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -s")
+
 check_c_compiler_flag("-std=c11" COMPILER_SUPPORTS_C11)
 if(NOT COMPILER_SUPPORTS_C11)
     message(FATAL_ERROR "The compiler ${CMAKE_C_COMPILER} has no C11 support.")

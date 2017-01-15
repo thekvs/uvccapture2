@@ -1,8 +1,12 @@
 include_directories(third_party)
 
+set(SRC
+    uvccapture2.cpp
+)
+
 add_executable(
     uvccapture2
-    uvccapture2.cpp
+    ${SRC}
 )
 # target_link_libraries(
 #     uvccapture2
