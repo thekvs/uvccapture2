@@ -207,9 +207,7 @@ private:
 
         format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
-        // FIXME: set format specified in cmd. line
-        format.fmt.pix.width = 800;
-        format.fmt.pix.height = 600;
+        std::tie(format.fmt.pix.width, format.fmt.pix.height) = parse_resolution();
 
         if (ioctl(fd, VIDIOC_S_FMT, &format) < 0) {
             LOG(ERROR) << "VIDIOC_S_FMT failed: " << strerror(errno);
@@ -263,6 +261,26 @@ private:
         memset(buffer.start, 0, bufferinfo.length);
 
         return true;
+    }
+
+    std::tuple<uint32_t, uint32_t> parse_resolution()
+    {
+        uint32_t x = 0, y = 0;
+
+        auto resolution = (*options)["resolution"].as<std::string>();
+        auto delimeter = resolution.find("x");
+
+        if ((delimeter != std::string::npos) and (delimeter + 1 < resolution.size())) {
+            auto x_str = resolution.substr(0, delimeter);
+            auto y_str = resolution.substr(delimeter + 1, resolution.size() - 1);
+
+            x = std::atol(x_str.c_str());
+            y = std::atol(y_str.c_str());
+        } else {
+            LOG(ERROR) << "invalid resolution description: " << resolution;
+        }
+
+        return std::make_tuple(x, y);
     }
 };
 
