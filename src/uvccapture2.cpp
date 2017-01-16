@@ -75,6 +75,7 @@ public:
         int frames_taken = 0;
         int frames_skipped = 0;
 
+        auto loop = (*options)["loop"].as<bool>();
         int frames_count = options->count("count") ? (*options)["count"].as<int>() : 1;
         int frames_to_skip = options->count("skip") ? (*options)["skip"].as<int>() : 0;
         useconds_t pause = std::lround((options->count("pause") ? (*options)["pause"].as<double>() : 0) * 1e6);
@@ -82,7 +83,7 @@ public:
         char fname[PATH_MAX];
         auto dir = (*options)["dir"].as<std::string>();
 
-        while (frames_taken < frames_count) {
+        while ((frames_taken < frames_count) or loop) {
             // Dequeue the buffer.
             if (ioctl(fd, VIDIOC_DQBUF, &bufferinfo) < 0) {
                 LOG(ERROR) << "VIDIOC_QBUF failed: " << strerror(errno);
@@ -278,6 +279,7 @@ main(int argc, char** argv)
         ("device", "camera's device ti use", cxxopts::value<std::string>()->default_value("/dev/video0"))
         ("count", "number of images to capture", cxxopts::value<int>())
         ("pause", "pause between subsequent captures in seconds", cxxopts::value<double>())
+        ("loop", "run in loop mode, overrides --count", cxxopts::value<bool>())
         ("skip", "skip specified number of frames before first capture", cxxopts::value<int>())
         ("resolution", "image's resolution", cxxopts::value<std::string>()->default_value("640x480"))
         ;
@@ -305,6 +307,7 @@ main(int argc, char** argv)
 
     std::cout << "images' directory: " << (*options)["dir"].as<std::string>() << std::endl;
     std::cout << "device: " << (*options)["device"].as<std::string>() << std::endl;
+    std::cout << "loop: " << (*options)["loop"].as<bool>() << std::endl;
 
     V4L2Device dev(options);
 
