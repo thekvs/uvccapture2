@@ -45,12 +45,9 @@ public:
 
     bool initialize()
     {
-        auto ok = open_device() and check_capabilities() and set_format() and init_buffers();
-        if (not ok) {
-            return false;
-        }
+        auto initialized = open_device() and check_capabilities() and set_format() and init_buffers();
 
-        return true;
+        return initialized;
     }
 
     void capture()
@@ -80,6 +77,7 @@ public:
 
         int frames_count = options->count("count") ? (*options)["count"].as<int>() : 1;
         int frames_to_skip = options->count("skip") ? (*options)["skip"].as<int>() : 0;
+        useconds_t pause = std::lround((options->count("pause") ? (*options)["pause"].as<double>() : 0) * 1e6);
 
         char fname[PATH_MAX];
         auto dir = (*options)["dir"].as<std::string>();
@@ -124,6 +122,9 @@ public:
                 break;
             }
 
+            if (pause > 0) {
+                usleep(pause);
+            }
         }
 
         // Deactivate streaming
@@ -276,6 +277,7 @@ main(int argc, char** argv)
         ("dir", "name of an images directory", cxxopts::value<std::string>())
         ("device", "camera's device ti use", cxxopts::value<std::string>()->default_value("/dev/video0"))
         ("count", "number of images to capture", cxxopts::value<int>())
+        ("pause", "pause between subsequent captures in seconds", cxxopts::value<double>())
         ("skip", "skip specified number of frames before first capture", cxxopts::value<int>())
         ("resolution", "image's resolution", cxxopts::value<std::string>()->default_value("640x480"))
         ;
