@@ -75,34 +75,44 @@ public:
             return;
         }
 
-        int images_taken = 0;
-        auto images_count = (*options)["count"].as<int>();
+        int frames_taken = 0;
+        int frames_skipped = 0;
+
+        int frames_count = options->count("count") ? (*options)["count"].as<int>() : 1;
+        int frames_to_skip = options->count("skip") ? (*options)["skip"].as<int>() : 0;
 
         char fname[PATH_MAX];
         auto dir = (*options)["dir"].as<std::string>();
 
-        while (images_taken < images_count) {
+        while (frames_taken < frames_count) {
             // Dequeue the buffer.
             if (ioctl(fd, VIDIOC_DQBUF, &bufferinfo) < 0) {
                 LOG(ERROR) << "VIDIOC_QBUF failed: " << strerror(errno);
                 break;
             }
 
-            snprintf(fname, sizeof(fname) - 1, "%s/image_%i.jpeg", dir.c_str(), images_taken);
+            bool skip_frame = frames_to_skip > 0 and frames_skipped < frames_to_skip;
 
-            int jpgfile;
-            if ((jpgfile = open(fname, O_WRONLY | O_CREAT, 0660)) < 0) {
-                LOG(ERROR) << "open file failed: " << strerror(errno);
-                break;
+            if (not skip_frame) {
+                snprintf(fname, sizeof(fname) - 1, "%s/image_%i.jpeg", dir.c_str(), frames_taken);
+
+                int jpgfile;
+                if ((jpgfile = open(fname, O_WRONLY | O_CREAT, 0660)) < 0) {
+                    LOG(ERROR) << "open file failed: " << strerror(errno);
+                    break;
+                }
+
+                auto rc = write(jpgfile, buffer.start, bufferinfo.length);
+                if (rc < 0) {
+                    LOG(ERROR) << "write file failed: " << strerror(errno);
+                    break;
+                }
+
+                close(jpgfile);
+                frames_taken++;
+            } else {
+                frames_skipped++;
             }
-
-            auto rc = write(jpgfile, buffer.start, bufferinfo.length);
-            if (rc < 0) {
-                LOG(ERROR) << "write file failed: " << strerror(errno);
-                break;
-            }
-
-            close(jpgfile);
 
             bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
             bufferinfo.memory = V4L2_MEMORY_MMAP;
@@ -114,7 +124,6 @@ public:
                 break;
             }
 
-            images_taken++;
         }
 
         // Deactivate streaming
@@ -182,7 +191,7 @@ private:
         }
 
         if ((cap.capabilities & V4L2_CAP_STREAMING) == 0) {
-            LOG(ERROR) << "the device does not to handle frame streaming";
+            LOG(ERROR) << "the device does not handle frame streaming";
             return false;
         }
 
@@ -267,6 +276,7 @@ main(int argc, char** argv)
         ("dir", "name of an images directory", cxxopts::value<std::string>())
         ("device", "camera's device ti use", cxxopts::value<std::string>()->default_value("/dev/video0"))
         ("count", "number of images to capture", cxxopts::value<int>())
+        ("skip", "skip specified number of frames before first capture", cxxopts::value<int>())
         ("resolution", "image's resolution", cxxopts::value<std::string>()->default_value("640x480"))
         ;
     // clang-format on
