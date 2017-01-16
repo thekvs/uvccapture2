@@ -80,7 +80,7 @@ public:
         int frames_to_skip = options->count("skip") ? (*options)["skip"].as<int>() : 0;
         useconds_t pause = std::lround((options->count("pause") ? (*options)["pause"].as<double>() : 0) * 1e6);
 
-        char fname[PATH_MAX];
+        char jpeg_file_name[PATH_MAX];
         auto dir = (*options)["dir"].as<std::string>();
 
         while ((frames_taken < frames_count) or loop) {
@@ -93,21 +93,21 @@ public:
             bool skip_frame = frames_to_skip > 0 and frames_skipped < frames_to_skip;
 
             if (not skip_frame) {
-                snprintf(fname, sizeof(fname) - 1, "%s/image_%i.jpeg", dir.c_str(), frames_taken);
+                snprintf(jpeg_file_name, sizeof(jpeg_file_name) - 1, "%s/image_%i.jpeg", dir.c_str(), frames_taken);
 
-                int jpgfile;
-                if ((jpgfile = open(fname, O_WRONLY | O_CREAT, 0660)) < 0) {
+                auto jpeg_file_fd = open(jpeg_file_name, O_WRONLY | O_CREAT, 0660);
+                if (jpeg_file_fd < 0) {
                     LOG(ERROR) << "open file failed: " << strerror(errno);
                     break;
                 }
 
-                auto rc = write(jpgfile, buffer.start, bufferinfo.length);
+                auto rc = write(jpeg_file_fd, buffer.start, bufferinfo.length);
                 if (rc < 0) {
                     LOG(ERROR) << "write file failed: " << strerror(errno);
                     break;
                 }
 
-                close(jpgfile);
+                close(jpeg_file_fd);
                 frames_taken++;
             } else {
                 frames_skipped++;
@@ -277,11 +277,11 @@ main(int argc, char** argv)
         ("debug", "enable debugging")
         ("dir", "name of an images directory", cxxopts::value<std::string>())
         ("device", "camera's device ti use", cxxopts::value<std::string>()->default_value("/dev/video0"))
+        ("resolution", "image's resolution", cxxopts::value<std::string>()->default_value("640x480"))
+        ("skip", "skip specified number of frames before first capture", cxxopts::value<int>())
         ("count", "number of images to capture", cxxopts::value<int>())
         ("pause", "pause between subsequent captures in seconds", cxxopts::value<double>())
         ("loop", "run in loop mode, overrides --count", cxxopts::value<bool>())
-        ("skip", "skip specified number of frames before first capture", cxxopts::value<int>())
-        ("resolution", "image's resolution", cxxopts::value<std::string>()->default_value("640x480"))
         ;
     // clang-format on
 
