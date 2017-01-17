@@ -12,6 +12,7 @@
 #include <linux/videodev2.h>
 
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <cstring>
 #include <vector>
@@ -72,16 +73,12 @@ public:
             return;
         }
 
-        int frames_taken = 0;
         int frames_skipped = 0;
 
         auto loop = (*options)["loop"].as<bool>();
         int frames_count = options->count("count") ? (*options)["count"].as<int>() : 1;
         int frames_to_skip = options->count("skip") ? (*options)["skip"].as<int>() : 0;
         useconds_t pause = std::lround((options->count("pause") ? (*options)["pause"].as<double>() : 0) * 1e6);
-
-        char jpeg_file_name[PATH_MAX];
-        auto dir = (*options)["dir"].as<std::string>();
 
         while ((frames_taken < frames_count) or loop) {
             // Dequeue the buffer.
@@ -93,22 +90,10 @@ public:
             bool skip_frame = frames_to_skip > 0 and frames_skipped < frames_to_skip;
 
             if (not skip_frame) {
-                snprintf(jpeg_file_name, sizeof(jpeg_file_name) - 1, "%s/image_%i.jpeg", dir.c_str(), frames_taken);
-
-                auto jpeg_file_fd = open(jpeg_file_name, O_WRONLY | O_CREAT, 0660);
-                if (jpeg_file_fd < 0) {
-                    LOG(ERROR) << "open file failed: " << strerror(errno);
+                auto ok = write_jpeg(bufferinfo);
+                if (not ok) {
                     break;
                 }
-
-                auto rc = write(jpeg_file_fd, buffer.start, bufferinfo.length);
-                if (rc < 0) {
-                    LOG(ERROR) << "write file failed: " << strerror(errno);
-                    break;
-                }
-
-                close(jpeg_file_fd);
-                frames_taken++;
             } else {
                 frames_skipped++;
             }
@@ -156,6 +141,8 @@ private:
     };
 
     int fd = -1;
+    int frames_taken = 0;
+
     IOBuffer buffer;
 
     OptionsPtr options;
@@ -297,6 +284,30 @@ private:
         }
 
         return std::make_tuple(ok, x, y);
+    }
+
+    bool write_jpeg(const struct v4l2_buffer &bufferinfo)
+    {
+        char jpeg_file_name[PATH_MAX];
+
+        snprintf(jpeg_file_name, sizeof(jpeg_file_name) - 1, "%s/image_%i.jpeg", (*options)["dir"].as<std::string>().c_str(), frames_taken);
+
+        std::fstream result(jpeg_file_name, std::ios::binary | std::ios::out | std::ios::trunc);
+        if (result.fail()) {
+            LOG(ERROR) << "open file failed: " << strerror(errno);
+            return false;
+        }
+
+        try {
+            result.write(static_cast<const char*>(buffer.start), bufferinfo.length);
+        } catch (std::exception &exc) {
+            LOG(ERROR) << "write file failed: " << exc.what();
+            return false;
+        }
+
+        frames_taken++;
+
+        return true;
     }
 };
 
