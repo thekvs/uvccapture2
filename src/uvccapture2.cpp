@@ -207,7 +207,13 @@ private:
 
         format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
-        std::tie(format.fmt.pix.width, format.fmt.pix.height) = parse_resolution();
+        bool ok;
+
+        std::tie(ok, format.fmt.pix.width, format.fmt.pix.height) = parse_resolution();
+
+        if (not ok) {
+            return false;
+        }
 
         if (ioctl(fd, VIDIOC_S_FMT, &format) < 0) {
             LOG(ERROR) << "VIDIOC_S_FMT failed: " << strerror(errno);
@@ -258,14 +264,15 @@ private:
         }
 
         buffer.size = bufferinfo.length;
-        memset(buffer.start, 0, bufferinfo.length);
+        std::memset(buffer.start, 0, bufferinfo.length);
 
         return true;
     }
 
-    std::tuple<uint32_t, uint32_t> parse_resolution()
+    std::tuple<bool, uint32_t, uint32_t> parse_resolution()
     {
         uint32_t x = 0, y = 0;
+        bool ok = true;
 
         auto resolution = (*options)["resolution"].as<std::string>();
         auto delimeter = resolution.find("x");
@@ -274,13 +281,22 @@ private:
             auto x_str = resolution.substr(0, delimeter);
             auto y_str = resolution.substr(delimeter + 1, resolution.size() - 1);
 
-            x = std::atol(x_str.c_str());
-            y = std::atol(y_str.c_str());
+            try {
+                x = std::stoul(x_str);
+                y = std::stoul(y_str);
+            } catch (std::invalid_argument &exc) {
+                LOG(ERROR) << "no conversion could be performed: " << exc.what();
+                ok = false;
+            } catch (std::out_of_range &exc) {
+                LOG(ERROR) << "out if range error: " << exc.what();
+                ok = false;
+            }
         } else {
             LOG(ERROR) << "invalid resolution description: " << resolution;
+            ok = false;
         }
 
-        return std::make_tuple(x, y);
+        return std::make_tuple(ok, x, y);
     }
 };
 
