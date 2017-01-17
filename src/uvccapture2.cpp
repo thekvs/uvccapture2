@@ -51,9 +51,11 @@ public:
         return initialized;
     }
 
-    void capture()
+    bool capture()
     {
         struct v4l2_buffer bufferinfo;
+        bool status = true;
+
         std::memset(&bufferinfo, 0, sizeof(bufferinfo));
 
         bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -63,14 +65,14 @@ public:
         // Put the buffer in the incoming queue.
         if (ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0) {
             LOG(ERROR) << "VIDIOC_QBUF failed: " << strerror(errno);
-            return;
+            return false;
         }
 
         // Activate streaming
         int type = bufferinfo.type;
         if (ioctl(fd, VIDIOC_STREAMON, &type) < 0){
             LOG(ERROR) << "VIDIOC_STREAMON failed: " << strerror(errno);
-            return;
+            return false;
         }
 
         int frames_skipped = 0;
@@ -84,6 +86,7 @@ public:
             // Dequeue the buffer.
             if (ioctl(fd, VIDIOC_DQBUF, &bufferinfo) < 0) {
                 LOG(ERROR) << "VIDIOC_QBUF failed: " << strerror(errno);
+                status = false;
                 break;
             }
 
@@ -92,6 +95,7 @@ public:
             if (not skip_frame) {
                 auto ok = write_jpeg(bufferinfo);
                 if (not ok) {
+                    status = false;
                     break;
                 }
             } else {
@@ -105,6 +109,7 @@ public:
             // Queue the next one.
             if (ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0) {
                 LOG(ERROR) << "VIDIOC_QBUF failed: " << strerror(errno);
+                status = false;
                 break;
             }
 
@@ -116,7 +121,10 @@ public:
         // Deactivate streaming
         if (ioctl(fd, VIDIOC_STREAMOFF, &type) < 0) {
             LOG(ERROR) << "VIDIOC_STREAMOFF failed: " << strerror(errno);
+            return false;
         }
+
+        return status;
     }
 
 private:
@@ -355,10 +363,11 @@ main(int argc, char** argv)
     std::cout << "loop: " << (*options)["loop"].as<bool>() << std::endl;
 
     V4L2Device dev(options);
+    auto ok = dev.initialize();
 
-    if (dev.initialize()) {
-        dev.capture();
+    if (ok) {
+        ok = dev.capture();
     }
 
-    return 0;
+    return (ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }
