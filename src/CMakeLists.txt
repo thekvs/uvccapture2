@@ -8,10 +8,10 @@ add_executable(
     uvccapture2
     ${SRC}
 )
-# target_link_libraries(
-#     uvccapture2
-#     ${CMAKE_THREAD_LIBS_INIT}
-# )
+target_link_libraries(
+    uvccapture2
+    ${LIBJPEG_LIBRARIES}
+)
 set_target_properties(uvccapture2 PROPERTIES COMPILE_FLAGS "-std=c++11")
 
 install(

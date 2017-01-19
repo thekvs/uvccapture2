@@ -50,6 +50,9 @@ endif()
 
 find_package(DebArch)
 
+pkg_check_modules(LIBJPEG REQUIRED libjpeg)
+include_directories(${LIBJPEG_INCLUDE_DIRS})
+
 set(TARGET_VERSION_MAJOR 0)
 set(TARGET_VERSION_MINOR 1)
 set(TARGET_VERSION_PATCH 0)
