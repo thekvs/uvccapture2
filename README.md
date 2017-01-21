@@ -9,4 +9,4 @@ Simple application for capturing images from an USB camera on Linux.
 Package will be created in the `packages` folder of the build directory.
 
 ## License
-
+See [LICENSE.md](LICENSE.md) file for license information.
