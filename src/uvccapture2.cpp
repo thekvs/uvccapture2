@@ -8,7 +8,7 @@
 #include <sys/select.h>
 
 #include <linux/limits.h>
-#include <linux/types.h>          /* for videodev2.h */
+#include <linux/types.h>
 #include <linux/videodev2.h>
 
 #include <iostream>
@@ -188,7 +188,7 @@ private:
             auto device = (*options)["device"].as<std::string>().c_str();
             fd = open(device, O_RDWR);
             if (fd < 0) {
-                LOG(ERROR) << "Couldn't open '" << device << "' :" << strerror(errno) << std::endl;
+                LOG(ERROR) << "Couldn't open '" << device << "': " << strerror(errno);
                 return false;
             }
         } else {
@@ -210,12 +210,12 @@ private:
         }
 
         if ((cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) == 0) {
-            LOG(ERROR) << "the device does not handle single-planar video capture";
+            LOG(ERROR) << "The device does not handle single-planar video capture";
             return false;
         }
 
         if ((cap.capabilities & V4L2_CAP_STREAMING) == 0) {
-            LOG(ERROR) << "the device does not handle frame streaming";
+            LOG(ERROR) << "The device does not handle frame streaming";
             return false;
         }
 
@@ -328,7 +328,7 @@ private:
         frames_taken++;
         snprintf(jpeg_file_name, sizeof(jpeg_file_name) - 1, "%s/image_%i.jpeg", (*options)["dir"].as<std::string>().c_str(), frames_taken);
 
-        if (options->count("quality") == 0) {
+        if (options->count("quality") == 0) {   // store jpeg as we have received it from the camera
             std::fstream result(jpeg_file_name, std::ios::binary | std::ios::out | std::ios::trunc);
             if (result.fail()) {
                 LOG(ERROR) << "open file failed: " << strerror(errno);
@@ -418,14 +418,14 @@ private:
         struct jpeg_compress_struct cinfo;
         struct jpeg_error_mgr jerr;
 
-        FILE *outfile = nullptr;
         JSAMPROW row_pointer[1];
 
         cinfo.err = jpeg_std_error(&jerr);
         jpeg_create_compress(&cinfo);
 
-        if ((outfile = fopen(jpeg_file_name, "wb")) == NULL) {
-            LOG(ERROR) << "can't open: " << jpeg_file_name;
+        FILE *outfile = fopen(jpeg_file_name, "wb");
+        if (outfile == nullptr) {
+            LOG(ERROR) << "can't open '" << jpeg_file_name << "': " << strerror(errno);
             return false;
         }
 
@@ -444,11 +444,9 @@ private:
         }
 
         jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
-
         jpeg_start_compress(&cinfo, TRUE);
 
-        unsigned int row_stride = image->width * 3; /* JSAMPLEs per row in image_buffer */
-
+        auto row_stride = image->width * 3; /* JSAMPLEs per row in image_buffer */
         while (cinfo.next_scanline < cinfo.image_height) {
             row_pointer[0] = &(image->raw_data.get()[cinfo.next_scanline * row_stride]);
             jpeg_write_scanlines(&cinfo, row_pointer, 1);
@@ -494,7 +492,7 @@ main(int argc, char** argv)
         return 0;
     }
 
-    // TODO: check options's values
+    // TODO: check options' values
 
     el::Configurations defaultConf;
     defaultConf.setToDefault();
