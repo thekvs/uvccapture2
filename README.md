@@ -1,14 +1,12 @@
 ## About
-Simple application for capturing images from an USB webcam on Linux.
+Simple application for capturing images from an USB camera on Linux.
 
 ## Compiling
+* `$ cmake /path/to/uvccapture2/ -DCMAKE_INSTALL_PREFIX=/usr/`
+* `$ make`
+* `$ cpack -G DEB` to create package in `.deb` format.
 
-## Usage
+Package will be created in the `packages` folder of the build directory.
 
 ## License
 
-----
-
-## Links
-
-* [Capturing a webcam using V4L2](https://jwhsmith.net/2014/12/capturing-a-webcam-stream-using-v4l2/)
