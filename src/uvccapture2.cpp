@@ -20,10 +20,13 @@
 #include <memory>
 #include <cerrno>
 
+#include <jpeglib.h>
+
 #include "cxxopts/cxxopts.hpp"
 #include "easylogging++/easylogging++.h"
 
 using OptionsPtr = std::shared_ptr<cxxopts::Options>;
+using MemBufferPtr = std::unique_ptr<unsigned char[]>;
 
 INITIALIZE_EASYLOGGINGPP
 
@@ -147,6 +150,30 @@ private:
         void *start = nullptr;
         size_t size = 0;
     };
+
+    class RawImage
+    {
+    public:
+
+        RawImage() = default;
+        RawImage(RawImage&) = delete;
+
+        RawImage(RawImage &&other)
+            : raw_data(std::move(other.raw_data))
+            , width(other.width)
+            , height(other.height)
+        {
+            other.width = 0;
+            other.height = 0;
+        }
+
+        MemBufferPtr raw_data;
+
+        unsigned int width = 0;
+        unsigned int height = 0;
+    };
+
+    using RawImagePtr = std::unique_ptr<RawImage>;
 
     int fd = -1;
     int frames_taken = 0;
@@ -298,22 +325,138 @@ private:
     {
         char jpeg_file_name[PATH_MAX];
 
+        frames_taken++;
         snprintf(jpeg_file_name, sizeof(jpeg_file_name) - 1, "%s/image_%i.jpeg", (*options)["dir"].as<std::string>().c_str(), frames_taken);
 
-        std::fstream result(jpeg_file_name, std::ios::binary | std::ios::out | std::ios::trunc);
-        if (result.fail()) {
-            LOG(ERROR) << "open file failed: " << strerror(errno);
+        if (options->count("quality") == 0) {
+            std::fstream result(jpeg_file_name, std::ios::binary | std::ios::out | std::ios::trunc);
+            if (result.fail()) {
+                LOG(ERROR) << "open file failed: " << strerror(errno);
+                return false;
+            }
+
+            try {
+                result.write(static_cast<const char*>(buffer.start), bufferinfo.length);
+            } catch (std::exception &exc) {
+                LOG(ERROR) << "write file failed: " << exc.what();
+                return false;
+            }
+
+            return true;
+        }
+
+        // (Re)compress JPEG
+
+        bool ok;
+        RawImagePtr image;
+
+        std::tie(ok, image) = decompress_jpeg(bufferinfo);
+        if (not ok) {
+            LOG(ERROR) << "image decompression failed!";
             return false;
         }
 
-        try {
-            result.write(static_cast<const char*>(buffer.start), bufferinfo.length);
-        } catch (std::exception &exc) {
-            LOG(ERROR) << "write file failed: " << exc.what();
+        ok = compress_jpeg(image, jpeg_file_name);
+        if (not ok) {
+            LOG(ERROR) << "image compression failed!";
             return false;
         }
 
-        frames_taken++;
+        return true;
+    }
+
+    std::tuple<bool, RawImagePtr> decompress_jpeg(const struct v4l2_buffer &bufferinfo)
+    {
+        bool status = false;
+
+        struct jpeg_decompress_struct cinfo;
+        struct jpeg_error_mgr jerr;
+
+        RawImagePtr image;
+
+        cinfo.err = jpeg_std_error(&jerr);
+        jpeg_create_decompress(&cinfo);
+
+        jpeg_mem_src(&cinfo, static_cast<unsigned char*>(buffer.start), bufferinfo.length);
+
+        auto rc = jpeg_read_header(&cinfo, TRUE);
+        if (rc != 1) {
+            LOG(ERROR) << "broken JPEG";
+            return std::make_tuple(status, std::move(image));
+        }
+
+        jpeg_start_decompress(&cinfo);
+
+        unsigned int width = cinfo.output_width;
+        unsigned int height = cinfo.output_height;
+        unsigned int pixel_size = cinfo.output_components;
+        unsigned int row_stride = width * pixel_size;
+        unsigned long raw_size = width * height * pixel_size;
+
+        image = RawImagePtr(new RawImage);
+
+        image->raw_data = MemBufferPtr(new unsigned char[raw_size]);
+        image->width = width;
+        image->height = height;
+
+        while (cinfo.output_scanline < cinfo.output_height) {
+            unsigned char *buffer_array[1];
+            buffer_array[0] = image->raw_data.get() + (cinfo.output_scanline) * row_stride;
+            jpeg_read_scanlines(&cinfo, buffer_array, 1);
+        }
+
+        jpeg_finish_decompress(&cinfo);
+        jpeg_destroy_decompress(&cinfo);
+
+        status = true;
+
+        return std::make_tuple(status, std::move(image));
+    }
+
+    bool compress_jpeg(const RawImagePtr &image, const char* jpeg_file_name)
+    {
+        struct jpeg_compress_struct cinfo;
+        struct jpeg_error_mgr jerr;
+
+        FILE *outfile = nullptr;
+        JSAMPROW row_pointer[1];
+
+        cinfo.err = jpeg_std_error(&jerr);
+        jpeg_create_compress(&cinfo);
+
+        if ((outfile = fopen(jpeg_file_name, "wb")) == NULL) {
+            LOG(ERROR) << "can't open: " << jpeg_file_name;
+            return false;
+        }
+
+        jpeg_stdio_dest(&cinfo, outfile);
+
+        cinfo.image_width = image->width;     /* image width and height, in pixels */
+        cinfo.image_height = image->height;
+        cinfo.input_components = 3;           /* # of color components per pixel */
+        cinfo.in_color_space = JCS_RGB;       /* colorspace of input image */
+
+        jpeg_set_defaults(&cinfo);
+
+        int quality = 75;
+        if (options->count("quality")) {
+            quality = (*options)["quality"].as<int>();
+        }
+
+        jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
+
+        jpeg_start_compress(&cinfo, TRUE);
+
+        unsigned int row_stride = image->width * 3; /* JSAMPLEs per row in image_buffer */
+
+        while (cinfo.next_scanline < cinfo.image_height) {
+            row_pointer[0] = &(image->raw_data.get()[cinfo.next_scanline * row_stride]);
+            jpeg_write_scanlines(&cinfo, row_pointer, 1);
+        }
+
+        jpeg_finish_compress(&cinfo);
+        fclose(outfile);
+        jpeg_destroy_compress(&cinfo);
 
         return true;
     }
@@ -329,8 +472,9 @@ main(int argc, char** argv)
         ("h,help", "show this help")
         ("debug", "enable debugging")
         ("dir", "directory where to save images", cxxopts::value<std::string>())
-        ("device", "camera's device ti use", cxxopts::value<std::string>()->default_value("/dev/video0"))
+        ("device", "camera's device device use", cxxopts::value<std::string>()->default_value("/dev/video0"))
         ("resolution", "image's resolution", cxxopts::value<std::string>()->default_value("640x480"))
+        ("quality", "compression quality for jpeg file", cxxopts::value<int>())
         ("skip", "skip specified number of frames before first capture", cxxopts::value<int>())
         ("count", "number of images to capture", cxxopts::value<int>())
         ("pause", "pause between subsequent captures in seconds", cxxopts::value<double>())
@@ -350,6 +494,8 @@ main(int argc, char** argv)
         return 0;
     }
 
+    // TODO: check options's values
+
     el::Configurations defaultConf;
     defaultConf.setToDefault();
     // Values are always std::string
@@ -357,10 +503,6 @@ main(int argc, char** argv)
     defaultConf.set(el::Level::Error, el::ConfigurationType::Format, "%datetime %level %loc %msg");
     // default logger uses default configurations
     el::Loggers::reconfigureLogger("default", defaultConf);
-
-    std::cout << "images' directory: " << (*options)["dir"].as<std::string>() << std::endl;
-    std::cout << "device: " << (*options)["device"].as<std::string>() << std::endl;
-    std::cout << "loop: " << (*options)["loop"].as<bool>() << std::endl;
 
     V4L2Device dev(options);
     auto ok = dev.initialize();
