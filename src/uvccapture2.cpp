@@ -321,12 +321,24 @@ private:
         return std::make_tuple(ok, x, y);
     }
 
+    std::string make_jpeg_file_name()
+    {
+        char name[PATH_MAX];
+
+        auto rc = snprintf(name, sizeof(name) - 1, "%s/image_%i.jpeg", (*options)["dir"].as<std::string>().c_str(), frames_taken);
+
+        return (rc > 0 ? std::string(name) : std::string());
+    }
+
     bool write_jpeg(const struct v4l2_buffer &bufferinfo)
     {
-        char jpeg_file_name[PATH_MAX];
-
         frames_taken++;
-        snprintf(jpeg_file_name, sizeof(jpeg_file_name) - 1, "%s/image_%i.jpeg", (*options)["dir"].as<std::string>().c_str(), frames_taken);
+
+        auto jpeg_file_name = make_jpeg_file_name();
+        if (jpeg_file_name.empty()) {
+            LOG(ERROR) << "couldn't create result file name";
+            return false;
+        }
 
         if (options->count("quality") == 0) {   // store jpeg as we have received it from the camera
             std::fstream result(jpeg_file_name, std::ios::binary | std::ios::out | std::ios::trunc);
@@ -367,8 +379,6 @@ private:
 
     std::tuple<bool, RawImagePtr> decompress_jpeg(const struct v4l2_buffer &bufferinfo)
     {
-        bool status = false;
-
         struct jpeg_decompress_struct cinfo;
         struct jpeg_error_mgr jerr;
 
@@ -382,16 +392,16 @@ private:
         auto rc = jpeg_read_header(&cinfo, TRUE);
         if (rc != 1) {
             LOG(ERROR) << "broken JPEG";
-            return std::make_tuple(status, std::move(image));
+            return std::make_tuple(false, std::move(image));
         }
 
         jpeg_start_decompress(&cinfo);
 
-        unsigned int width = cinfo.output_width;
-        unsigned int height = cinfo.output_height;
-        unsigned int pixel_size = cinfo.output_components;
-        unsigned int row_stride = width * pixel_size;
-        unsigned long raw_size = width * height * pixel_size;
+        auto width = cinfo.output_width;
+        auto height = cinfo.output_height;
+        auto pixel_size = cinfo.output_components;
+        auto row_stride = width * pixel_size;
+        auto raw_size = width * height * pixel_size;
 
         image = RawImagePtr(new RawImage);
 
@@ -408,12 +418,10 @@ private:
         jpeg_finish_decompress(&cinfo);
         jpeg_destroy_decompress(&cinfo);
 
-        status = true;
-
-        return std::make_tuple(status, std::move(image));
+        return std::make_tuple(true, std::move(image));
     }
 
-    bool compress_jpeg(const RawImagePtr &image, const char* jpeg_file_name)
+    bool compress_jpeg(const RawImagePtr &image, const std::string &jpeg_file_name)
     {
         struct jpeg_compress_struct cinfo;
         struct jpeg_error_mgr jerr;
@@ -423,7 +431,7 @@ private:
         cinfo.err = jpeg_std_error(&jerr);
         jpeg_create_compress(&cinfo);
 
-        FILE *outfile = fopen(jpeg_file_name, "wb");
+        FILE *outfile = fopen(jpeg_file_name.c_str(), "wb");
         if (outfile == nullptr) {
             LOG(ERROR) << "can't open '" << jpeg_file_name << "': " << strerror(errno);
             return false;
