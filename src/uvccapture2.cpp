@@ -324,8 +324,21 @@ private:
     make_jpeg_file_name()
     {
         char name[PATH_MAX];
+        int rc = 0;
 
-        auto rc = snprintf(name, sizeof(name) - 1, "%s/image_%i.jpeg", (*options)["dir"].as<std::string>().c_str(), frames_taken);
+        auto tmpl = (*options)["result"].as<std::string>();
+
+        auto use_strftime = (*options)["strftime"].as<bool>();
+        if (use_strftime) {
+            struct tm lt;
+            auto t = std::time(nullptr);
+            if (localtime_r(&t, &lt) == nullptr) {
+                LOG(ERROR) << "localtime_r() failed";
+            }
+            rc = strftime(name, sizeof(name) - 1, tmpl.c_str(), &lt);
+        } else {
+            rc = snprintf(name, sizeof(name) - 1, tmpl.c_str(), frames_taken);
+        }
 
         return (rc > 0 ? std::string(name) : std::string());
     }
@@ -479,7 +492,7 @@ main(int argc, char** argv)
     // clang-format off
     options->add_options()
         ("h,help", "show this help and exit")
-        ("dir", "directory where to save images", cxxopts::value<std::string>())
+        ("result", "jpeg image name template", cxxopts::value<std::string>())
         ("device", "camera's device device use", cxxopts::value<std::string>()->default_value("/dev/video0"))
         ("resolution", "image's resolution", cxxopts::value<std::string>()->default_value("640x480"))
         ("quality", "compression quality for jpeg file", cxxopts::value<int>())
@@ -487,6 +500,7 @@ main(int argc, char** argv)
         ("count", "number of images to capture", cxxopts::value<int>())
         ("pause", "pause between subsequent captures in seconds", cxxopts::value<double>())
         ("loop", "run in loop mode, overrides --count", cxxopts::value<bool>())
+        ("strftime", "expand the filename with date and time information", cxxopts::value<bool>())
         ;
     // clang-format on
 
@@ -520,8 +534,8 @@ main(int argc, char** argv)
         }
     }
 
-    if (options->count("dir") == 0) {
-        LOG(ERROR) << "Mandatory parameter '--dir' was not specified.";
+    if (options->count("result") == 0) {
+        LOG(ERROR) << "Mandatory parameter '--result' was not specified.";
         return EXIT_FAILURE;
     }
 
