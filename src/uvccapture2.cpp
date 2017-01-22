@@ -1,24 +1,24 @@
-#include <unistd.h>
 #include <fcntl.h>
+#include <unistd.h>
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/select.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include <linux/limits.h>
 #include <linux/types.h>
 #include <linux/videodev2.h>
 
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <cstring>
-#include <vector>
-#include <utility>
-#include <memory>
 #include <cerrno>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include <jpeglib.h>
 
@@ -30,13 +30,13 @@ using MemBufferPtr = std::unique_ptr<unsigned char[]>;
 
 INITIALIZE_EASYLOGGINGPP
 
-class V4L2Device {
+class V4L2Device
+{
 public:
-
     V4L2Device() = delete;
 
-    V4L2Device(OptionsPtr opts):
-        options(opts)
+    V4L2Device(OptionsPtr opts)
+        : options(opts)
     {
     }
 
@@ -47,14 +47,16 @@ public:
         }
     }
 
-    bool initialize()
+    bool
+    initialize()
     {
         auto initialized = open_device() and check_capabilities() and set_format() and init_buffers();
 
         return initialized;
     }
 
-    bool capture()
+    bool
+    capture()
     {
         struct v4l2_buffer bufferinfo;
         bool status = true;
@@ -73,7 +75,7 @@ public:
 
         // Activate streaming
         int type = bufferinfo.type;
-        if (ioctl(fd, VIDIOC_STREAMON, &type) < 0){
+        if (ioctl(fd, VIDIOC_STREAMON, &type) < 0) {
             LOG(ERROR) << "VIDIOC_STREAMON failed: " << strerror(errno);
             return false;
         }
@@ -147,18 +149,17 @@ private:
             }
         }
 
-        void *start = nullptr;
+        void* start = nullptr;
         size_t size = 0;
     };
 
     class RawImage
     {
     public:
-
         RawImage() = default;
         RawImage(RawImage&) = delete;
 
-        RawImage(RawImage &&other)
+        RawImage(RawImage&& other)
             : raw_data(std::move(other.raw_data))
             , width(other.width)
             , height(other.height)
@@ -182,7 +183,8 @@ private:
 
     OptionsPtr options;
 
-    bool open_device()
+    bool
+    open_device()
     {
         if (fd == -1) {
             auto device = (*options)["device"].as<std::string>().c_str();
@@ -199,7 +201,8 @@ private:
         return true;
     }
 
-    bool check_capabilities()
+    bool
+    check_capabilities()
     {
         struct v4l2_capability cap;
         std::memset(&cap, 0, sizeof(cap));
@@ -222,7 +225,8 @@ private:
         return true;
     }
 
-    bool set_format()
+    bool
+    set_format()
     {
         struct v4l2_format format;
         std::memset(&format, 0, sizeof(format));
@@ -245,7 +249,8 @@ private:
         return true;
     }
 
-    bool init_buffers()
+    bool
+    init_buffers()
     {
         struct v4l2_requestbuffers bufrequest;
         std::memset(&bufrequest, 0, sizeof(bufrequest));
@@ -271,14 +276,7 @@ private:
             return false;
         }
 
-        buffer.start = mmap(
-            NULL,
-            bufferinfo.length,
-            PROT_READ | PROT_WRITE,
-            MAP_SHARED,
-            fd,
-            bufferinfo.m.offset
-        );
+        buffer.start = mmap(NULL, bufferinfo.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bufferinfo.m.offset);
 
         if (buffer.start == MAP_FAILED) {
             LOG(ERROR) << "mmaping buffer failed: " << strerror(errno);
@@ -291,7 +289,8 @@ private:
         return true;
     }
 
-    std::tuple<bool, uint32_t, uint32_t> parse_resolution()
+    std::tuple<bool, uint32_t, uint32_t>
+    parse_resolution()
     {
         uint32_t x = 0, y = 0;
         bool ok = true;
@@ -306,10 +305,10 @@ private:
             try {
                 x = std::stoul(x_str);
                 y = std::stoul(y_str);
-            } catch (std::invalid_argument &exc) {
+            } catch (std::invalid_argument& exc) {
                 LOG(ERROR) << "no conversion could be performed: " << exc.what();
                 ok = false;
-            } catch (std::out_of_range &exc) {
+            } catch (std::out_of_range& exc) {
                 LOG(ERROR) << "out if range error: " << exc.what();
                 ok = false;
             }
@@ -321,7 +320,8 @@ private:
         return std::make_tuple(ok, x, y);
     }
 
-    std::string make_jpeg_file_name()
+    std::string
+    make_jpeg_file_name()
     {
         char name[PATH_MAX];
 
@@ -330,7 +330,8 @@ private:
         return (rc > 0 ? std::string(name) : std::string());
     }
 
-    bool write_jpeg(const struct v4l2_buffer &bufferinfo)
+    bool
+    write_jpeg(const struct v4l2_buffer& bufferinfo)
     {
         frames_taken++;
 
@@ -340,7 +341,7 @@ private:
             return false;
         }
 
-        if (options->count("quality") == 0) {   // store jpeg as we have received it from the camera
+        if (options->count("quality") == 0) { // store jpeg as we have received it from the camera
             std::fstream result(jpeg_file_name, std::ios::binary | std::ios::out | std::ios::trunc);
             if (result.fail()) {
                 LOG(ERROR) << "open file failed: " << strerror(errno);
@@ -349,7 +350,7 @@ private:
 
             try {
                 result.write(static_cast<const char*>(buffer.start), bufferinfo.length);
-            } catch (std::exception &exc) {
+            } catch (std::exception& exc) {
                 LOG(ERROR) << "write file failed: " << exc.what();
                 return false;
             }
@@ -377,7 +378,8 @@ private:
         return true;
     }
 
-    std::tuple<bool, RawImagePtr> decompress_jpeg(const struct v4l2_buffer &bufferinfo)
+    std::tuple<bool, RawImagePtr>
+    decompress_jpeg(const struct v4l2_buffer& bufferinfo)
     {
         struct jpeg_decompress_struct cinfo;
         struct jpeg_error_mgr jerr;
@@ -410,7 +412,7 @@ private:
         image->height = height;
 
         while (cinfo.output_scanline < cinfo.output_height) {
-            unsigned char *buffer_array[1];
+            unsigned char* buffer_array[1];
             buffer_array[0] = image->raw_data.get() + (cinfo.output_scanline) * row_stride;
             jpeg_read_scanlines(&cinfo, buffer_array, 1);
         }
@@ -421,7 +423,8 @@ private:
         return std::make_tuple(true, std::move(image));
     }
 
-    bool compress_jpeg(const RawImagePtr &image, const std::string &jpeg_file_name)
+    bool
+    compress_jpeg(const RawImagePtr& image, const std::string& jpeg_file_name)
     {
         struct jpeg_compress_struct cinfo;
         struct jpeg_error_mgr jerr;
@@ -431,7 +434,7 @@ private:
         cinfo.err = jpeg_std_error(&jerr);
         jpeg_create_compress(&cinfo);
 
-        FILE *outfile = fopen(jpeg_file_name.c_str(), "wb");
+        FILE* outfile = fopen(jpeg_file_name.c_str(), "wb");
         if (outfile == nullptr) {
             LOG(ERROR) << "can't open '" << jpeg_file_name << "': " << strerror(errno);
             return false;
@@ -439,10 +442,10 @@ private:
 
         jpeg_stdio_dest(&cinfo, outfile);
 
-        cinfo.image_width = image->width;     /* image width and height, in pixels */
+        cinfo.image_width = image->width; /* image width and height, in pixels */
         cinfo.image_height = image->height;
-        cinfo.input_components = 3;           /* # of color components per pixel */
-        cinfo.in_color_space = JCS_RGB;       /* colorspace of input image */
+        cinfo.input_components = 3; /* # of color components per pixel */
+        cinfo.in_color_space = JCS_RGB; /* colorspace of input image */
 
         jpeg_set_defaults(&cinfo);
 
@@ -496,7 +499,7 @@ main(int argc, char** argv)
 
     el::Configurations el_config;
     el_config.setToDefault();
-    // Values are always std::string
+// Values are always std::string
 #ifndef NDEBUG
     el_config.set(el::Level::Info, el::ConfigurationType::Format, "%datetime %level %loc %msg");
     el_config.set(el::Level::Error, el::ConfigurationType::Format, "%datetime %level %loc %msg");
