@@ -28,6 +28,8 @@
 using OptionsPtr = std::shared_ptr<cxxopts::Options>;
 using MemBufferPtr = std::unique_ptr<unsigned char[]>;
 
+static const int kDefaultJPEGQuality = 75;
+
 INITIALIZE_EASYLOGGINGPP
 
 class V4L2Device
@@ -354,7 +356,8 @@ private:
             return false;
         }
 
-        if (options->count("quality") == 0) { // store jpeg as we have received it from the camera
+        auto save_jpeg_asis = (*options)["save-jpeg-asis"].as<bool>();
+        if (save_jpeg_asis) { // store jpeg as we have received it from the camera
             std::fstream result(jpeg_file_name, std::ios::binary | std::ios::out | std::ios::trunc);
             if (result.fail()) {
                 LOG(ERROR) << "open file failed: " << strerror(errno);
@@ -462,7 +465,7 @@ private:
 
         jpeg_set_defaults(&cinfo);
 
-        int quality = 75;
+        int quality = kDefaultJPEGQuality;
         if (options->count("quality")) {
             quality = (*options)["quality"].as<int>();
         }
@@ -501,6 +504,7 @@ main(int argc, char** argv)
         ("pause", "pause between subsequent captures in seconds", cxxopts::value<double>())
         ("loop", "run in loop mode, overrides --count", cxxopts::value<bool>())
         ("strftime", "expand the filename with date and time information", cxxopts::value<bool>())
+        ("save-jpeg-asis", "store jpeg as we have received it from USB camera", cxxopts::value<bool>())
         ;
     // clang-format on
 
