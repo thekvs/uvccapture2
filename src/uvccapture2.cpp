@@ -475,8 +475,7 @@ main(int argc, char** argv)
 
     // clang-format off
     options->add_options()
-        ("h,help", "show this help")
-        ("debug", "enable debugging")
+        ("h,help", "show this help and exit")
         ("dir", "directory where to save images", cxxopts::value<std::string>())
         ("device", "camera's device device use", cxxopts::value<std::string>()->default_value("/dev/video0"))
         ("resolution", "image's resolution", cxxopts::value<std::string>()->default_value("640x480"))
@@ -492,21 +491,23 @@ main(int argc, char** argv)
 
     if (options->count("help")) {
         std::cout << options->help() << std::endl;
-        return 0;
+        return EXIT_SUCCESS;
     }
 
-    if (options->count("dir") == 0) {
-        std::cout << "Mandatory parameter '--dir' was not specified." << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    el::Configurations defaultConf;
-    defaultConf.setToDefault();
+    el::Configurations el_config;
+    el_config.setToDefault();
     // Values are always std::string
-    defaultConf.set(el::Level::Info, el::ConfigurationType::Format, "%datetime %level %loc %msg");
-    defaultConf.set(el::Level::Error, el::ConfigurationType::Format, "%datetime %level %loc %msg");
+#ifndef NDEBUG
+    el_config.set(el::Level::Info, el::ConfigurationType::Format, "%datetime %level %loc %msg");
+    el_config.set(el::Level::Error, el::ConfigurationType::Format, "%datetime %level %loc %msg");
+    el_config.set(el::Level::Warning, el::ConfigurationType::Format, "%datetime %level %loc %msg");
+#else
+    el_config.set(el::Level::Info, el::ConfigurationType::Format, "%level %msg");
+    el_config.set(el::Level::Error, el::ConfigurationType::Format, "%level %msg");
+    el_config.set(el::Level::Warning, el::ConfigurationType::Format, "%level %msg");
+#endif
     // default logger uses default configurations
-    el::Loggers::reconfigureLogger("default", defaultConf);
+    el::Loggers::reconfigureLogger("default", el_config);
 
     if (options->count("quality")) {
         auto quality = (*options)["quality"].as<int>();
@@ -514,6 +515,11 @@ main(int argc, char** argv)
             LOG(ERROR) << "inavalid value for '--quality' parameter, has to be between 0 and 100.";
             return EXIT_FAILURE;
         }
+    }
+
+    if (options->count("dir") == 0) {
+        LOG(ERROR) << "Mandatory parameter '--dir' was not specified.";
+        return EXIT_FAILURE;
     }
 
     V4L2Device dev(options);
