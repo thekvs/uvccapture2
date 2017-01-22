@@ -311,7 +311,7 @@ private:
                 LOG(ERROR) << "no conversion could be performed: " << exc.what();
                 ok = false;
             } catch (std::out_of_range& exc) {
-                LOG(ERROR) << "out if range error: " << exc.what();
+                LOG(ERROR) << "out of range error: " << exc.what();
                 ok = false;
             }
         } else {
