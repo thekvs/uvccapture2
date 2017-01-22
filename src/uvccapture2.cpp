@@ -497,10 +497,8 @@ main(int argc, char** argv)
 
     if (options->count("dir") == 0) {
         std::cout << "Mandatory parameter '--dir' was not specified." << std::endl;
-        return 0;
+        return EXIT_FAILURE;
     }
-
-    // TODO: check options' values
 
     el::Configurations defaultConf;
     defaultConf.setToDefault();
@@ -509,6 +507,14 @@ main(int argc, char** argv)
     defaultConf.set(el::Level::Error, el::ConfigurationType::Format, "%datetime %level %loc %msg");
     // default logger uses default configurations
     el::Loggers::reconfigureLogger("default", defaultConf);
+
+    if (options->count("quality")) {
+        auto quality = (*options)["quality"].as<int>();
+        if (quality < 0 or quality > 100) {
+            LOG(ERROR) << "inavalid value for '--quality' parameter, has to be between 0 and 100.";
+            return EXIT_FAILURE;
+        }
+    }
 
     V4L2Device dev(options);
     auto ok = dev.initialize();
