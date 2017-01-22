@@ -118,7 +118,7 @@ public:
                 break;
             }
 
-            if (pause > 0) {
+            if (pause > 0 and (not skip_frame)) {
                 usleep(pause);
             }
         }
