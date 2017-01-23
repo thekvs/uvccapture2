@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <setjmp.h>
 #include <unistd.h>
 
 #include <sys/ioctl.h>
@@ -16,6 +17,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,6 +33,32 @@ using MemBufferPtr = std::unique_ptr<unsigned char[]>;
 static const int kDefaultJPEGQuality = 75;
 
 INITIALIZE_EASYLOGGINGPP
+
+struct JPEGErrorManager {
+    /* "public" fields */
+    struct jpeg_error_mgr pub;
+    /* for return to caller */
+    jmp_buf setjmp_buffer;
+};
+
+char jpeg_last_error_msg[JMSG_LENGTH_MAX];
+
+void
+jpeg_error_exit_cb(j_common_ptr cinfo)
+{
+    /* cinfo->err actually points to a JPEGErrorManager struct */
+    JPEGErrorManager* myerr = (JPEGErrorManager*)cinfo->err;
+    /* note : *(cinfo->err) is now equivalent to myerr->pub */
+
+    /* output_message is a method to print an error message */
+    /*(* (cinfo->err->output_message) ) (cinfo);*/
+
+    /* Create the message */
+    (*(cinfo->err->format_message))(cinfo, jpeg_last_error_msg);
+
+    /* Jump to the setjmp point */
+    longjmp(myerr->setjmp_buffer, 1);
+}
 
 class V4L2Device
 {
@@ -85,6 +113,7 @@ public:
         int frames_skipped = 0;
 
         auto loop = (*options)["loop"].as<bool>();
+        auto ignore_jpeg_errors = (*options)["ignore-jpeg-errors"].as<bool>();
         int frames_count = options->count("count") ? (*options)["count"].as<int>() : 1;
         int frames_to_skip = options->count("skip") ? (*options)["skip"].as<int>() : 0;
         useconds_t pause = std::lround((options->count("pause") ? (*options)["pause"].as<double>() : 0) * 1e6);
@@ -102,8 +131,12 @@ public:
             if (not skip_frame) {
                 auto ok = write_jpeg(bufferinfo);
                 if (not ok) {
-                    status = false;
-                    break;
+                    if (not ignore_jpeg_errors) {
+                        status = false;
+                        break;
+                    }
+                } else {
+                    frames_taken++;
                 }
             } else {
                 frames_skipped++;
@@ -348,8 +381,6 @@ private:
     bool
     write_jpeg(const struct v4l2_buffer& bufferinfo)
     {
-        frames_taken++;
-
         auto jpeg_file_name = make_jpeg_file_name();
         if (jpeg_file_name.empty()) {
             LOG(ERROR) << "couldn't create result file name";
@@ -379,15 +410,20 @@ private:
         bool ok;
         RawImagePtr image;
 
-        std::tie(ok, image) = decompress_jpeg(bufferinfo);
-        if (not ok) {
-            LOG(ERROR) << "image decompression failed!";
-            return false;
-        }
+        try {
+            std::tie(ok, image) = decompress_jpeg(bufferinfo);
+            if (not ok) {
+                LOG(ERROR) << "image decompression failed!";
+                return false;
+            }
 
-        ok = compress_jpeg(image, jpeg_file_name);
-        if (not ok) {
-            LOG(ERROR) << "image compression failed!";
+            ok = compress_jpeg(image, jpeg_file_name);
+            if (not ok) {
+                LOG(ERROR) << "image compression failed!";
+                return false;
+            }
+        } catch (std::exception& exc) {
+            LOG(WARNING) << "image (de)compression failed: " << exc.what();
             return false;
         }
 
@@ -398,11 +434,20 @@ private:
     decompress_jpeg(const struct v4l2_buffer& bufferinfo)
     {
         struct jpeg_decompress_struct cinfo;
-        struct jpeg_error_mgr jerr;
-
         RawImagePtr image;
 
-        cinfo.err = jpeg_std_error(&jerr);
+        JPEGErrorManager jerr;
+        cinfo.err = jpeg_std_error(&jerr.pub);
+        jerr.pub.error_exit = jpeg_error_exit_cb;
+
+        if (setjmp(jerr.setjmp_buffer)) {
+            /* If we get here, the JPEG code has signaled an error. */
+            LOG(WARNING) << jpeg_last_error_msg;
+            jpeg_destroy_decompress(&cinfo);
+
+            return std::make_tuple(false, std::move(image));
+        }
+
         jpeg_create_decompress(&cinfo);
 
         jpeg_mem_src(&cinfo, static_cast<unsigned char*>(buffer.start), bufferinfo.length);
@@ -498,13 +543,14 @@ main(int argc, char** argv)
         ("result", "jpeg image name template", cxxopts::value<std::string>())
         ("device", "camera's device device use", cxxopts::value<std::string>()->default_value("/dev/video0"))
         ("resolution", "image's resolution", cxxopts::value<std::string>()->default_value("640x480"))
-        ("quality", "compression quality for jpeg file", cxxopts::value<int>())
+        ("quality", "compression quality for jpeg file (default: 75)", cxxopts::value<int>())
         ("skip", "skip specified number of frames before first capture", cxxopts::value<int>())
         ("count", "number of images to capture", cxxopts::value<int>())
         ("pause", "pause between subsequent captures in seconds", cxxopts::value<double>())
-        ("loop", "run in loop mode, overrides --count", cxxopts::value<bool>())
+        ("loop", "run in a loop mode, overrides --count", cxxopts::value<bool>())
         ("strftime", "expand the filename with date and time information", cxxopts::value<bool>())
-        ("save-jpeg-asis", "store jpeg as we have received it from USB camera", cxxopts::value<bool>())
+        ("save-jpeg-asis", "store jpeg as we have received it from an USB camera", cxxopts::value<bool>())
+        ("ignore-jpeg-errors", "ignore libjpeg errors", cxxopts::value<bool>())
         ;
     // clang-format on
 
