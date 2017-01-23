@@ -563,6 +563,7 @@ main(int argc, char** argv)
 
     el::Configurations el_config;
     el_config.setToDefault();
+
 // Values are always std::string
 #ifndef NDEBUG
     el_config.set(el::Level::Info, el::ConfigurationType::Format, "%datetime %level %loc %msg");
@@ -573,6 +574,9 @@ main(int argc, char** argv)
     el_config.set(el::Level::Error, el::ConfigurationType::Format, "%level %msg");
     el_config.set(el::Level::Warning, el::ConfigurationType::Format, "%level %msg");
 #endif
+    // do not log to file
+    el_config.setGlobally(el::ConfigurationType::ToFile, "false");
+
     // default logger uses default configurations
     el::Loggers::reconfigureLogger("default", el_config);
 
