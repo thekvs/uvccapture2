@@ -12,6 +12,7 @@
 #include <linux/types.h>
 #include <linux/videodev2.h>
 
+#include <array>
 #include <cerrno>
 #include <cstring>
 #include <fstream>
@@ -31,6 +32,7 @@ using OptionsPtr = std::shared_ptr<cxxopts::Options>;
 using MemBufferPtr = std::unique_ptr<unsigned char[]>;
 
 static const int kDefaultJPEGQuality = 75;
+static const int kBuffersCount = 16 * 2;
 
 INITIALIZE_EASYLOGGINGPP
 
@@ -91,16 +93,18 @@ public:
         struct v4l2_buffer bufferinfo;
         bool status = true;
 
-        std::memset(&bufferinfo, 0, sizeof(bufferinfo));
+        for (int i = 0; i < kBuffersCount; i++) {
+            std::memset(&bufferinfo, 0, sizeof(bufferinfo));
 
-        bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        bufferinfo.memory = V4L2_MEMORY_MMAP;
-        bufferinfo.index = 0; /* Queueing buffer index 0. */
+            bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            bufferinfo.memory = V4L2_MEMORY_MMAP;
+            bufferinfo.index = i; /* Queueing buffer index i. */
 
-        // Put the buffer in the incoming queue.
-        if (ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0) {
-            LOG(ERROR) << "VIDIOC_QBUF failed: " << strerror(errno);
-            return false;
+            // Put the buffer in the incoming queue.
+            if (ioctl(fd, VIDIOC_QBUF, &bufferinfo) < 0) {
+                LOG(ERROR) << "VIDIOC_QBUF failed: " << strerror(errno);
+                return false;
+            }
         }
 
         // Activate streaming
@@ -127,9 +131,10 @@ public:
             }
 
             bool skip_frame = frames_to_skip > 0 and frames_skipped < frames_to_skip;
+            bool ok = false;
 
             if (not skip_frame) {
-                auto ok = write_jpeg(bufferinfo);
+                ok = write_jpeg(bufferinfo);
                 if (not ok) {
                     if (not ignore_jpeg_errors) {
                         status = false;
@@ -153,7 +158,7 @@ public:
                 break;
             }
 
-            if (pause > 0 and (not skip_frame)) {
+            if (pause > 0 and (not skip_frame) and ok) {
                 usleep(pause);
             }
         }
@@ -214,7 +219,7 @@ private:
     int fd = -1;
     int frames_taken = 0;
 
-    IOBuffer buffer;
+    std::array<IOBuffer, kBuffersCount> buffers;
 
     OptionsPtr options;
 
@@ -292,7 +297,7 @@ private:
 
         bufrequest.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         bufrequest.memory = V4L2_MEMORY_MMAP;
-        bufrequest.count = 1;
+        bufrequest.count = kBuffersCount;
 
         if (ioctl(fd, VIDIOC_REQBUFS, &bufrequest) < 0) {
             LOG(ERROR) << "VIDIOC_REQBUFS failed: " << strerror(errno);
@@ -300,26 +305,27 @@ private:
         }
 
         struct v4l2_buffer bufferinfo;
-        std::memset(&bufferinfo, 0, sizeof(bufferinfo));
 
-        bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        bufferinfo.memory = V4L2_MEMORY_MMAP;
-        bufferinfo.index = 0;
+        for (int i = 0; i < kBuffersCount; i++) {
+            std::memset(&bufferinfo, 0, sizeof(bufferinfo));
 
-        if (ioctl(fd, VIDIOC_QUERYBUF, &bufferinfo) < 0) {
-            LOG(ERROR) << "VIDIOC_QUERYBUF failed: " << strerror(errno);
-            return false;
+            bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            bufferinfo.memory = V4L2_MEMORY_MMAP;
+            bufferinfo.index = i;
+
+            if (ioctl(fd, VIDIOC_QUERYBUF, &bufferinfo) < 0) {
+                LOG(ERROR) << "VIDIOC_QUERYBUF failed: " << strerror(errno);
+                return false;
+            }
+
+            buffers[i].start = mmap(NULL, bufferinfo.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bufferinfo.m.offset);
+            if (buffers[i].start == MAP_FAILED) {
+                LOG(ERROR) << "mmaping buffer failed: " << strerror(errno);
+                return false;
+            }
+
+            buffers[i].size = bufferinfo.length;
         }
-
-        buffer.start = mmap(NULL, bufferinfo.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bufferinfo.m.offset);
-
-        if (buffer.start == MAP_FAILED) {
-            LOG(ERROR) << "mmaping buffer failed: " << strerror(errno);
-            return false;
-        }
-
-        buffer.size = bufferinfo.length;
-        std::memset(buffer.start, 0, bufferinfo.length);
 
         return true;
     }
@@ -381,6 +387,8 @@ private:
     bool
     write_jpeg(const struct v4l2_buffer& bufferinfo)
     {
+        auto idx = bufferinfo.index;
+
         auto jpeg_file_name = make_jpeg_file_name();
         if (jpeg_file_name.empty()) {
             LOG(ERROR) << "couldn't create result file name";
@@ -396,7 +404,7 @@ private:
             }
 
             try {
-                result.write(static_cast<const char*>(buffer.start), bufferinfo.length);
+                result.write(static_cast<const char*>(buffers[idx].start), bufferinfo.length);
             } catch (std::exception& exc) {
                 LOG(ERROR) << "write file failed: " << exc.what();
                 return false;
@@ -450,7 +458,8 @@ private:
 
         jpeg_create_decompress(&cinfo);
 
-        jpeg_mem_src(&cinfo, static_cast<unsigned char*>(buffer.start), bufferinfo.length);
+        auto idx = bufferinfo.index;
+        jpeg_mem_src(&cinfo, static_cast<unsigned char*>(buffers[idx].start), bufferinfo.length);
 
         auto rc = jpeg_read_header(&cinfo, TRUE);
         if (rc != 1) {
