@@ -39,6 +39,7 @@ INITIALIZE_EASYLOGGINGPP
 struct JPEGErrorManager {
     /* "public" fields */
     struct jpeg_error_mgr pub;
+    OptionsPtr options;
     /* for return to caller */
     jmp_buf setjmp_buffer;
 };
@@ -48,18 +49,30 @@ char jpeg_last_error_msg[JMSG_LENGTH_MAX];
 void
 jpeg_error_exit_cb(j_common_ptr cinfo)
 {
-    /* cinfo->err actually points to a JPEGErrorManager struct */
+    // cinfo->err actually points to a JPEGErrorManager struct
     JPEGErrorManager* myerr = (JPEGErrorManager*)cinfo->err;
-    /* note : *(cinfo->err) is now equivalent to myerr->pub */
+    // note : *(cinfo->err) is now equivalent to myerr->pub
 
-    /* output_message is a method to print an error message */
-    /*(* (cinfo->err->output_message) ) (cinfo);*/
+    // output_message is a method to print an error message
+    // (* (cinfo->err->output_message) ) (cinfo);
 
-    /* Create the message */
-    (*(cinfo->err->format_message))(cinfo, jpeg_last_error_msg);
+    // Create the message
+    myerr->pub.format_message(cinfo, jpeg_last_error_msg);
 
-    /* Jump to the setjmp point */
+    // Jump to the setjmp point
     longjmp(myerr->setjmp_buffer, 1);
+}
+
+void
+jpeg_output_message_cb(j_common_ptr cinfo)
+{
+    JPEGErrorManager* error_manager = (JPEGErrorManager*)cinfo->err;
+
+    auto quiet = (*(error_manager->options))["quiet"].as<bool>();
+    if (not quiet) {
+        error_manager->pub.format_message(cinfo, jpeg_last_error_msg);
+        LOG(WARNING) << jpeg_last_error_msg;
+    }
 }
 
 class V4L2Device
@@ -445,12 +458,18 @@ private:
         RawImagePtr image;
 
         JPEGErrorManager jerr;
+        jerr.options = options;
         cinfo.err = jpeg_std_error(&jerr.pub);
         jerr.pub.error_exit = jpeg_error_exit_cb;
+        jerr.pub.output_message = jpeg_output_message_cb;
 
         if (setjmp(jerr.setjmp_buffer)) {
-            /* If we get here, the JPEG code has signaled an error. */
-            LOG(WARNING) << jpeg_last_error_msg;
+            // If we get here, the JPEG code has signaled an error.
+            auto quiet = (*options)["quiet"].as<bool>();
+            if (not quiet) {
+                LOG(WARNING) << jpeg_last_error_msg;
+            }
+
             jpeg_destroy_decompress(&cinfo);
 
             return std::make_tuple(false, std::move(image));
@@ -560,6 +579,7 @@ main(int argc, char** argv)
         ("strftime", "expand the filename with date and time information", cxxopts::value<bool>())
         ("save-jpeg-asis", "store jpeg as we have received it from an USB camera", cxxopts::value<bool>())
         ("ignore-jpeg-errors", "ignore libjpeg errors", cxxopts::value<bool>())
+        ("quiet", "do not show errors and warnings from libjpeg", cxxopts::value<bool>())
         ;
     // clang-format on
 
