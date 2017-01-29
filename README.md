@@ -30,6 +30,7 @@ Usage:
       --save-jpeg-asis      store jpeg as we have received it from an USB
                             camera
       --ignore-jpeg-errors  ignore libjpeg errors
+      --quiet               do not show errors and warnings from libjpeg
 ```
 
 ## License
