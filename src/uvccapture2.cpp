@@ -2,6 +2,7 @@
 #include <setjmp.h>
 #include <unistd.h>
 
+#include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/select.h>
@@ -31,6 +32,7 @@
 
 using OptionsPtr = std::shared_ptr<cxxopts::Options>;
 using MemBufferPtr = std::unique_ptr<unsigned char[]>;
+using EpollEventPtr = std::unique_ptr<struct epoll_event>;
 
 static const int kDefaultJPEGQuality = 75;
 static const int kBuffersCount = 16 * 2;
@@ -128,6 +130,26 @@ public:
             return false;
         }
 
+        auto efd = epoll_create(100);
+        if (efd == -1) {
+            LOG(ERROR) << "epoll_create() failed: " << strerror(errno);
+            return false;
+        }
+
+        struct epoll_event event;
+        std::memset(&event, 0, sizeof(event));
+
+        event.data.fd = fd;
+        event.events = EPOLLIN | EPOLLET;
+
+        auto rc = epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event);
+        if (rc == -1) {
+            LOG(ERROR) << "epoll_ctl() failed: " << strerror(errno);
+            return false;
+        }
+
+        EpollEventPtr events = EpollEventPtr(new struct epoll_event);
+
         int frames_skipped = 0;
 
         auto loop = (*options)["loop"].as<bool>();
@@ -137,6 +159,24 @@ public:
         useconds_t pause = std::lround((options->count("pause") ? (*options)["pause"].as<double>() : 0) * 1e6);
 
         while ((frames_taken < frames_count) or loop) {
+            auto rc = epoll_wait(efd, events.get(), 1, -1);
+            if (rc == -1) {
+                LOG(ERROR) << "epoll_wait() error: " << strerror(errno);
+                status = false;
+                break;
+            }
+
+            if (rc == 0) {
+                LOG(WARNING) << "epoll_wait() returned 0";
+                continue;
+            }
+
+            if ((events->events & EPOLLERR) or (events->events & EPOLLHUP) or (!(events->events & EPOLLIN))) {
+                LOG(ERROR) << "epoll error";
+                status = false;
+                break;
+            }
+
             // Dequeue the buffer.
             if (ioctl(fd, VIDIOC_DQBUF, &bufferinfo) < 0) {
                 LOG(ERROR) << "VIDIOC_QBUF failed: " << strerror(errno);
